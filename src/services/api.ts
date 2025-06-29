@@ -65,6 +65,60 @@ interface FlagData {
   description?: string;
 }
 
+interface QuizQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  difficulty: string;
+}
+
+interface Quiz {
+  quizId: string;
+  questions: QuizQuestion[];
+  totalQuestions: number;
+  estimatedTime: number;
+}
+
+interface QuizResult {
+  quizId: string;
+  score: number;
+  correctAnswers: number;
+  totalQuestions: number;
+  timeSpent: number;
+  results: any[];
+  isPerfectScore: boolean;
+}
+
+interface Reward {
+  id: string;
+  title: string;
+  description: string;
+  cost: number;
+  value: number;
+  category: 'transit' | 'local' | 'boost';
+  icon: string;
+  available: boolean;
+}
+
+interface UserProfile {
+  userId: string;
+  totalXP: number;
+  currentXP: number;
+  metroPoints: number;
+  level: number;
+  transactions: any[];
+  redemptions: any[];
+  badges: string[];
+  recentTransactions: any[];
+}
+
+interface VotePledge {
+  userId: string;
+  electionId: string;
+  pledgeType: 'early-voting' | 'election-day' | 'absentee';
+  scheduledDate?: string;
+}
+
 class ApiService {
   private async request<T>(
     endpoint: string,
@@ -122,10 +176,62 @@ class ApiService {
     });
   }
 
+  async generateQuiz(userId: string, preferences?: any): Promise<ApiResponse<Quiz>> {
+    return this.request<Quiz>('/api/quiz/generate', {
+      method: 'POST',
+      body: JSON.stringify({ userId, preferences }),
+    });
+  }
+
+  async submitQuiz(quizId: string, answers: number[], userId: string): Promise<ApiResponse<QuizResult & { rewards?: any }>> {
+    return this.request<QuizResult & { rewards?: any }>('/api/quiz/submit', {
+      method: 'POST',
+      body: JSON.stringify({ quizId, answers, userId }),
+    });
+  }
+
+  async submitVotePledge(pledgeData: VotePledge): Promise<ApiResponse<any>> {
+    return this.request<any>('/api/vote-pledge', {
+      method: 'POST',
+      body: JSON.stringify(pledgeData),
+    });
+  }
+
+  async getRewards(): Promise<ApiResponse<Reward[]>> {
+    return this.request<Reward[]>('/api/rewards');
+  }
+
+  async redeemReward(userId: string, rewardId: string, quantity = 1): Promise<ApiResponse<any>> {
+    return this.request<any>('/api/rewards/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ userId, rewardId, quantity }),
+    });
+  }
+
+  async getUserProfile(userId: string): Promise<ApiResponse<UserProfile>> {
+    return this.request<UserProfile>(`/api/user/${userId}/profile`);
+  }
+
+  async getLeaderboard(): Promise<ApiResponse<any[]>> {
+    return this.request<any[]>('/api/leaderboard');
+  }
+
   async healthCheck(): Promise<ApiResponse<{ status: string; timestamp: string }>> {
     return this.request<{ status: string; timestamp: string }>('/health');
   }
 }
 
 export const apiService = new ApiService();
-export type { OnboardingData, OnboardingResult, ApiResponse, FeedItem, FlagData };
+export type { 
+  OnboardingData, 
+  OnboardingResult, 
+  ApiResponse, 
+  FeedItem, 
+  FlagData, 
+  Quiz,
+  QuizQuestion,
+  QuizResult,
+  Reward,
+  UserProfile,
+  VotePledge
+};

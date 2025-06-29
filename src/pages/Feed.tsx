@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { Flag, Share2, MessageCircle, Heart, AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import { Flag, Share2, MessageCircle, Heart, AlertTriangle, CheckCircle, Info, Brain, Vote } from 'lucide-react'
 import { apiService, type FeedItem } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import QuizModal from '../components/QuizModal'
 
 const Feed: React.FC = () => {
   const { user } = useAuth()
@@ -9,6 +10,8 @@ const Feed: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [flaggingItem, setFlaggingItem] = useState<string | null>(null)
+  const [showQuizModal, setShowQuizModal] = useState(false)
+  const [showPledgeModal, setShowPledgeModal] = useState(false)
 
   useEffect(() => {
     loadFeed()
@@ -54,6 +57,28 @@ const Feed: React.FC = () => {
         setFlaggingItem(null)
       } else {
         alert('Failed to flag content. Please try again.')
+      }
+    } catch (err) {
+      alert('Network error. Please try again.')
+    }
+  }
+
+  const handleVotePledge = async (pledgeType: 'early-voting' | 'election-day' | 'absentee') => {
+    if (!user) return
+
+    try {
+      const response = await apiService.submitVotePledge({
+        userId: user.id,
+        electionId: 'nyc-2024-general',
+        pledgeType,
+        scheduledDate: pledgeType === 'early-voting' ? '2024-10-26' : '2024-11-05'
+      })
+
+      if (response.success) {
+        alert(`Vote pledge submitted! You've earned XP for your civic commitment.`)
+        setShowPledgeModal(false)
+      } else {
+        alert(response.error || 'Failed to submit vote pledge')
       }
     } catch (err) {
       alert('Network error. Please try again.')
@@ -115,6 +140,49 @@ const Feed: React.FC = () => {
         <p className="text-xs text-center text-secondary-500 mt-1">
           AI-powered fact-checking enabled
         </p>
+      </div>
+
+      {/* Action Cards */}
+      <div className="p-4 space-y-3">
+        <div className="bg-gradient-to-r from-primary-50 to-accent-50 border border-primary-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="bg-primary-100 p-2 rounded-lg">
+                <Brain size={20} className="text-primary-600" />
+              </div>
+              <div>
+                <h3 className="font-medium text-primary-900">Test Your Knowledge</h3>
+                <p className="text-sm text-primary-700">Take a civic quiz and earn XP</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowQuizModal(true)}
+              className="btn-primary px-4 py-2 text-sm"
+            >
+              Start Quiz
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-r from-success-50 to-accent-50 border border-success-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="bg-success-100 p-2 rounded-lg">
+                <Vote size={20} className="text-success-600" />
+              </div>
+              <div>
+                <h3 className="font-medium text-success-900">Make a Vote Pledge</h3>
+                <p className="text-sm text-success-700">Commit to voting and earn rewards</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowPledgeModal(true)}
+              className="bg-success-600 text-white px-4 py-2 text-sm rounded-lg hover:bg-success-700 transition-colors"
+            >
+              Pledge
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Feed Items */}
@@ -265,6 +333,61 @@ const Feed: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Vote Pledge Modal */}
+      {showPledgeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <h3 className="text-lg font-semibold mb-4">Make Your Vote Pledge</h3>
+            <p className="text-sm text-secondary-600 mb-4">
+              Commit to voting in the upcoming election and earn 100 XP!
+            </p>
+            
+            <div className="space-y-3 mb-4">
+              <button
+                onClick={() => handleVotePledge('early-voting')}
+                className="w-full text-left p-3 rounded-lg border border-secondary-200 hover:bg-secondary-50 transition-colors"
+              >
+                <div className="font-medium">Early Voting</div>
+                <div className="text-sm text-secondary-600">October 26 - November 3</div>
+              </button>
+              
+              <button
+                onClick={() => handleVotePledge('election-day')}
+                className="w-full text-left p-3 rounded-lg border border-secondary-200 hover:bg-secondary-50 transition-colors"
+              >
+                <div className="font-medium">Election Day</div>
+                <div className="text-sm text-secondary-600">November 5, 2024</div>
+              </button>
+              
+              <button
+                onClick={() => handleVotePledge('absentee')}
+                className="w-full text-left p-3 rounded-lg border border-secondary-200 hover:bg-secondary-50 transition-colors"
+              >
+                <div className="font-medium">Absentee Ballot</div>
+                <div className="text-sm text-secondary-600">Mail-in voting</div>
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setShowPledgeModal(false)}
+              className="w-full btn-outline py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quiz Modal */}
+      <QuizModal
+        isOpen={showQuizModal}
+        onClose={() => setShowQuizModal(false)}
+        onComplete={(result) => {
+          console.log('Quiz completed:', result)
+          // Could show a success toast or update UI
+        }}
+      />
 
       {/* Empty State */}
       {feedItems.length === 0 && !loading && (
