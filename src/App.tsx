@@ -7,6 +7,7 @@ import Feed from './pages/Feed'
 import Rewards from './pages/Rewards'
 import Profile from './pages/Profile'
 import Transparency from './pages/Transparency'
+import Analytics from './pages/Analytics'
 import { AuthProvider } from './contexts/AuthContext'
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/transparency" element={<Transparency />} />
+            <Route path="/analytics" element={<Analytics />} />
           </Routes>
         </Layout>
       </Router>

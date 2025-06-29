@@ -162,6 +162,63 @@ interface AuditEvent {
   summary: string;
 }
 
+interface DashboardMetrics {
+  timeframe: string;
+  cohort?: string;
+  kpis: {
+    onboardingCompletion: { started: number; completed: number; rate: number };
+    contradictionsPerHundredViews: { views: number; contradictions: number; rate: number };
+    metroPointsRedemption: { earned: number; redeemed: number; rate: number };
+    dailyActiveUsers: number;
+    monthlyActiveUsers: number;
+    retentionRate: number;
+  };
+  engagement: {
+    totalEvents: number;
+    uniqueUsers: number;
+    averageSessionDuration: number;
+    topEvents: Array<{ name: string; count: number }>;
+  };
+  content: {
+    feedViews: number;
+    contentShares: number;
+    flagsSubmitted: number;
+    quizzesCompleted: number;
+    contradictionsFound: number;
+  };
+  funnel: {
+    landingPageViews: number;
+    onboardingStarted: number;
+    onboardingCompleted: number;
+    firstFeedView: number;
+    firstQuizTaken: number;
+    firstRewardRedeemed: number;
+  };
+}
+
+interface CohortAnalysis {
+  cohortId: string;
+  userCount: number;
+  engagement: {
+    activeUsers: number;
+    averageSessionsPerUser: number;
+    averageEventsPerUser: number;
+    retentionRate: number;
+  };
+  performance: {
+    onboardingCompletion: { rate: number };
+    quizParticipation: { rate: number };
+    rewardRedemption: { rate: number };
+    contentEngagement: { rate: number };
+  };
+}
+
+interface FeatureFlags {
+  features: string[];
+  flags: Record<string, any>;
+  cohort: string;
+}
+
 class ApiService {
   private async request<T>(
     endpoint: string,
@@ -194,6 +251,66 @@ class ApiService {
     }
   }
 
+  // Analytics tracking
+  async trackEvent(eventName: string, userId: string, properties?: any, metadata?: any): Promise<ApiResponse<any>> {
+    return this.request<any>('/api/analytics/track', {
+      method: 'POST',
+      body: JSON.stringify({ eventName, userId, properties, metadata }),
+    });
+  }
+
+  async getDashboardMetrics(timeframe = '24h', cohort?: string | null): Promise<ApiResponse<DashboardMetrics>> {
+    const params = new URLSearchParams();
+    params.append('timeframe', timeframe);
+    if (cohort) params.append('cohort', cohort);
+    
+    return this.request<DashboardMetrics>(`/api/analytics/dashboard?${params.toString()}`);
+  }
+
+  async getCampaignAnalytics(campaignId: string, timeframe = '30d'): Promise<ApiResponse<any>> {
+    return this.request<any>(`/api/analytics/campaign/${campaignId}?timeframe=${timeframe}`);
+  }
+
+  async getCohortAnalysis(cohortId: string, timeframe = '30d'): Promise<ApiResponse<CohortAnalysis>> {
+    return this.request<CohortAnalysis>(`/api/analytics/cohort/${cohortId}?timeframe=${timeframe}`);
+  }
+
+  // Feature flags
+  async getUserFeatures(userId: string, userContext?: any): Promise<ApiResponse<FeatureFlags>> {
+    const params = new URLSearchParams();
+    if (userContext) {
+      Object.entries(userContext).forEach(([key, value]) => {
+        params.append(key, String(value));
+      });
+    }
+    
+    return this.request<FeatureFlags>(`/api/features/${userId}?${params.toString()}`);
+  }
+
+  async checkFeatureFlag(userId: string, flagName: string, userContext?: any): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams();
+    if (userContext) {
+      Object.entries(userContext).forEach(([key, value]) => {
+        params.append(key, String(value));
+      });
+    }
+    
+    return this.request<any>(`/api/features/${userId}/${flagName}?${params.toString()}`);
+  }
+
+  async getFeatureFlagAnalytics(timeframe = '24h'): Promise<ApiResponse<any>> {
+    return this.request<any>(`/api/analytics/feature-flags?timeframe=${timeframe}`);
+  }
+
+  // Feedback collection
+  async submitFeedback(userId: string, type: string, data: any, metadata?: any): Promise<ApiResponse<any>> {
+    return this.request<any>('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ userId, type, data, metadata }),
+    });
+  }
+
+  // Existing methods...
   async submitOnboarding(data: OnboardingData): Promise<ApiResponse<OnboardingResult>> {
     return this.request<OnboardingResult>('/api/onboarding', {
       method: 'POST',
@@ -294,5 +411,8 @@ export type {
   UserProfile,
   VotePledge,
   TransparencyReport,
-  AuditEvent
+  AuditEvent,
+  DashboardMetrics,
+  CohortAnalysis,
+  FeatureFlags
 };

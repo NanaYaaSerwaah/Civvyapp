@@ -9,6 +9,8 @@ import { RewardMaster } from './services/RewardMaster.js';
 import { QuizService } from './services/QuizService.js';
 import { IntegrityGuardian } from './services/IntegrityGuardian.js';
 import { AuditService } from './services/AuditService.js';
+import { AnalyticsService } from './services/AnalyticsService.js';
+import { FeatureFlagService } from './services/FeatureFlagService.js';
 import { validateOnboardingData, validateFlagData, validateQuizData, validatePledgeData } from './middleware/validation.js';
 
 dotenv.config();
@@ -22,6 +24,8 @@ const rewardMaster = new RewardMaster();
 const quizService = new QuizService();
 const integrityGuardian = new IntegrityGuardian();
 const auditService = new AuditService();
+const analyticsService = new AnalyticsService();
+const featureFlagService = new FeatureFlagService();
 
 // Security middleware
 app.use(helmet());
@@ -50,10 +54,184 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Onboarding endpoint
+// Analytics tracking endpoint
+app.post('/api/analytics/track', async (req, res) => {
+  try {
+    const { eventName, userId, properties, metadata } = req.body;
+    
+    if (!eventName || !userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Event name and user ID are required'
+      });
+    }
+
+    const result = await analyticsService.trackEvent(
+      eventName, 
+      userId, 
+      properties, 
+      {
+        ...metadata,
+        userAgent: req.get('User-Agent'),
+        ipHash: req.ip ? require('crypto').createHash('sha256').update(req.ip).digest('hex').substring(0, 16) : null
+      }
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Analytics tracking error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to track event'
+    });
+  }
+});
+
+// Dashboard metrics endpoint
+app.get('/api/analytics/dashboard', async (req, res) => {
+  try {
+    const { timeframe = '24h', cohort } = req.query;
+    
+    const metrics = analyticsService.getDashboardMetrics(timeframe, cohort);
+    res.json(metrics);
+  } catch (error) {
+    console.error('Dashboard metrics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate dashboard metrics'
+    });
+  }
+});
+
+// Campaign analytics endpoint
+app.get('/api/analytics/campaign/:campaignId', async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const { timeframe = '30d' } = req.query;
+    
+    const analytics = analyticsService.getCampaignAnalytics(campaignId, timeframe);
+    res.json(analytics);
+  } catch (error) {
+    console.error('Campaign analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate campaign analytics'
+    });
+  }
+});
+
+// Cohort analysis endpoint
+app.get('/api/analytics/cohort/:cohortId', async (req, res) => {
+  try {
+    const { cohortId } = req.params;
+    const { timeframe = '30d' } = req.query;
+    
+    const analysis = analyticsService.getCohortAnalysis(cohortId, timeframe);
+    res.json(analysis);
+  } catch (error) {
+    console.error('Cohort analysis error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate cohort analysis'
+    });
+  }
+});
+
+// Feature flag endpoints
+app.get('/api/features/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userContext = req.query;
+    
+    const features = featureFlagService.getUserFeatures(userId, userContext);
+    res.json({
+      success: true,
+      data: features
+    });
+  } catch (error) {
+    console.error('Feature flags error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get user features'
+    });
+  }
+});
+
+app.get('/api/features/:userId/:flagName', async (req, res) => {
+  try {
+    const { userId, flagName } = req.params;
+    const userContext = req.query;
+    
+    const result = featureFlagService.isEnabled(flagName, userId, userContext);
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('Feature flag check error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check feature flag'
+    });
+  }
+});
+
+// Feature flag analytics
+app.get('/api/analytics/feature-flags', async (req, res) => {
+  try {
+    const { timeframe = '24h' } = req.query;
+    
+    const analytics = featureFlagService.getExposureAnalytics(timeframe);
+    res.json(analytics);
+  } catch (error) {
+    console.error('Feature flag analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate feature flag analytics'
+    });
+  }
+});
+
+// Feedback collection endpoint
+app.post('/api/feedback', async (req, res) => {
+  try {
+    const { userId, type, data, metadata } = req.body;
+    
+    if (!userId || !type || !data) {
+      return res.status(400).json({
+        success: false,
+        error: 'User ID, type, and data are required'
+      });
+    }
+
+    const result = await analyticsService.collectFeedback(userId, type, data, {
+      ...metadata,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString()
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Feedback collection error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to collect feedback'
+    });
+  }
+});
+
+// Onboarding endpoint with analytics tracking
 app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
   try {
     const { issues, format, reminders, cadence, zipCode } = req.body;
+    
+    // Track onboarding start
+    const userId = req.body.userId || `user_${Date.now()}`;
+    await analyticsService.trackEvent('onboarding_started', userId, {
+      issues: issues.length,
+      format,
+      zipCode
+    });
     
     // Initialize IssueMatcher with user preferences
     const issueMatcher = new IssueMatcher();
@@ -69,7 +247,7 @@ app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
     // Store onboarding data (mock implementation for now)
     const onboardingResult = {
       id: `onboarding_${Date.now()}`,
-      userId: req.body.userId || `user_${Date.now()}`,
+      userId,
       preferences: {
         issues,
         format,
@@ -86,6 +264,13 @@ app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
     await auditService.logEvent('user_onboarded', {
       userId: onboardingResult.userId,
       preferences: onboardingResult.preferences
+    });
+
+    // Track onboarding completion
+    await analyticsService.trackEvent('onboarding_completed', userId, {
+      diversityScore: personalizedTopics.diversityScore,
+      totalTopics: personalizedTopics.totalTopics,
+      surpriseTopics: personalizedTopics.surpriseTopics.length
     });
     
     res.status(201).json({
@@ -104,16 +289,37 @@ app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
   }
 });
 
-// Feed endpoint - GET /api/feed
+// Feed endpoint with analytics tracking
 app.get('/api/feed', async (req, res) => {
   try {
     const userId = req.query.userId || 'anonymous';
+    
+    // Track feed view
+    if (userId !== 'anonymous') {
+      await analyticsService.trackEvent('feed_viewed', userId, {
+        preferences: req.query.preferences ? 'custom' : 'default'
+      });
+    }
     
     // Get user preferences (mock - would come from database)
     const preferences = req.query.preferences ? JSON.parse(req.query.preferences) : {};
     
     // Generate personalized feed
     const feedResult = await contentService.getFeed(userId, preferences);
+    
+    // Track contradictions found
+    if (feedResult.success && feedResult.data) {
+      const contradictionsFound = feedResult.data.reduce((sum, item) => 
+        sum + (item.contradictions || 0), 0
+      );
+      
+      if (contradictionsFound > 0 && userId !== 'anonymous') {
+        await analyticsService.trackEvent('contradiction_detected', userId, {
+          count: contradictionsFound,
+          totalItems: feedResult.data.length
+        });
+      }
+    }
     
     if (feedResult.success) {
       res.json(feedResult);
@@ -131,9 +337,15 @@ app.get('/api/feed', async (req, res) => {
   }
 });
 
-// Flag submission endpoint - POST /api/flag
+// Flag submission endpoint with analytics
 app.post('/api/flag', validateFlagData, async (req, res) => {
   try {
+    // Track flag submission
+    await analyticsService.trackEvent('flag_submitted', req.body.userId, {
+      reason: req.body.reason,
+      contentId: req.body.contentId
+    });
+
     // Process flag with reputation weighting
     const weightedFlag = await integrityGuardian.processFlagWithReputation(req.body);
     
@@ -179,7 +391,7 @@ app.post('/api/flag', validateFlagData, async (req, res) => {
   }
 });
 
-// Quiz endpoints
+// Quiz endpoints with analytics
 app.post('/api/quiz/generate', async (req, res) => {
   try {
     const { userId, preferences } = req.body;
@@ -190,6 +402,12 @@ app.post('/api/quiz/generate', async (req, res) => {
         error: 'User ID is required'
       });
     }
+
+    // Track quiz generation
+    await analyticsService.trackEvent('quiz_generated', userId, {
+      hasPreferences: !!preferences,
+      issueCount: preferences?.issues?.length || 0
+    });
 
     const quizResult = await quizService.generateQuiz(userId, preferences);
     
@@ -222,6 +440,14 @@ app.post('/api/quiz/submit', validateQuizData, async (req, res) => {
     const submitResult = await quizService.submitQuiz(quizId, answers);
     
     if (submitResult.success) {
+      // Track quiz completion
+      await analyticsService.trackEvent('quiz_completed', userId, {
+        score: submitResult.data.score,
+        isPerfectScore: submitResult.data.isPerfectScore,
+        timeSpent: submitResult.data.timeSpent,
+        questionCount: submitResult.data.totalQuestions
+      });
+
       // Award XP for quiz completion
       const quizData = {
         quizId,
@@ -231,6 +457,15 @@ app.post('/api/quiz/submit', validateQuizData, async (req, res) => {
       };
       
       const rewardResult = await rewardMaster.processQuizCompletion(userId, quizData);
+
+      // Track XP earned
+      if (rewardResult.success) {
+        await analyticsService.trackEvent('metropoints_earned', userId, {
+          source: 'quiz',
+          amount: rewardResult.data.totalXPEarned,
+          quizScore: submitResult.data.score
+        });
+      }
 
       // Log audit event
       await auditService.logEvent('quiz_completed', {
@@ -258,12 +493,25 @@ app.post('/api/quiz/submit', validateQuizData, async (req, res) => {
   }
 });
 
-// Vote pledge endpoint
+// Vote pledge endpoint with analytics
 app.post('/api/vote-pledge', validatePledgeData, async (req, res) => {
   try {
+    // Track vote pledge
+    await analyticsService.trackEvent('vote_pledge', req.body.userId, {
+      electionId: req.body.electionId,
+      pledgeType: req.body.pledgeType
+    });
+
     const pledgeResult = await rewardMaster.processVotePledge(req.body.userId, req.body);
     
     if (pledgeResult.success) {
+      // Track XP earned
+      await analyticsService.trackEvent('metropoints_earned', req.body.userId, {
+        source: 'vote_pledge',
+        amount: pledgeResult.data.reward?.xpEarned || 0,
+        pledgeType: req.body.pledgeType
+      });
+
       // Log audit event
       await auditService.logEvent('vote_pledge', {
         userId: req.body.userId,
@@ -286,7 +534,7 @@ app.post('/api/vote-pledge', validatePledgeData, async (req, res) => {
   }
 });
 
-// Rewards endpoints
+// Rewards endpoints with analytics
 app.get('/api/rewards', (req, res) => {
   try {
     const rewards = rewardMaster.getAvailableRewards();
@@ -317,6 +565,14 @@ app.post('/api/rewards/redeem', async (req, res) => {
     const redeemResult = await rewardMaster.redeemReward(userId, rewardId, quantity);
     
     if (redeemResult.success) {
+      // Track reward redemption
+      await analyticsService.trackEvent('reward_redeemed', userId, {
+        rewardId,
+        quantity,
+        cost: redeemResult.data.transaction.cost,
+        category: redeemResult.data.transaction.category
+      });
+
       // Log audit event
       await auditService.logEvent('reward_redeemed', {
         userId,
@@ -479,4 +735,6 @@ app.listen(PORT, () => {
   console.log(`🧠 QuizService civic knowledge system ready`);
   console.log(`🛡️ IntegrityGuardian trust layer operational`);
   console.log(`📋 AuditService transparency system active`);
+  console.log(`📈 AnalyticsService real-time tracking enabled`);
+  console.log(`🎛️ FeatureFlagService pilot management ready`);
 });

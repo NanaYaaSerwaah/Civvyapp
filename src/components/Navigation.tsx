@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Home, Gift, User, Eye } from 'lucide-react'
+import { Home, Gift, User, Eye, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const Navigation: React.FC = () => {
@@ -10,6 +10,7 @@ const Navigation: React.FC = () => {
     { path: '/feed', icon: Home, label: 'Feed' },
     { path: '/rewards', icon: Gift, label: 'Rewards' },
     { path: '/transparency', icon: Eye, label: 'Trust' },
+    { path: '/analytics', icon: BarChart3, label: 'Analytics' },
     { path: '/profile', icon: User, label: 'Profile' },
   ]
 
