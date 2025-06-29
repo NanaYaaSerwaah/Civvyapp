@@ -37,6 +37,34 @@ interface OnboardingResult {
   status: string;
 }
 
+interface FeedItem {
+  id: string;
+  type: 'story' | 'video' | 'article';
+  title: string;
+  content: string;
+  source: string;
+  author: string;
+  timestamp: string;
+  tags: string[];
+  verified: boolean;
+  analysis?: {
+    contradictions: any[];
+    confidence: number;
+    biasScore: number;
+    factChecks: any[];
+  };
+  contradictions?: number;
+  confidence?: number;
+  biasScore?: number;
+}
+
+interface FlagData {
+  contentId: string;
+  userId: string;
+  reason: string;
+  description?: string;
+}
+
 class ApiService {
   private async request<T>(
     endpoint: string,
@@ -76,10 +104,28 @@ class ApiService {
     });
   }
 
+  async getFeed(userId?: string, preferences?: any): Promise<ApiResponse<FeedItem[]>> {
+    const params = new URLSearchParams();
+    if (userId) params.append('userId', userId);
+    if (preferences) params.append('preferences', JSON.stringify(preferences));
+    
+    const queryString = params.toString();
+    const endpoint = `/api/feed${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request<FeedItem[]>(endpoint);
+  }
+
+  async submitFlag(flagData: FlagData): Promise<ApiResponse<any>> {
+    return this.request<any>('/api/flag', {
+      method: 'POST',
+      body: JSON.stringify(flagData),
+    });
+  }
+
   async healthCheck(): Promise<ApiResponse<{ status: string; timestamp: string }>> {
     return this.request<{ status: string; timestamp: string }>('/health');
   }
 }
 
 export const apiService = new ApiService();
-export type { OnboardingData, OnboardingResult, ApiResponse };
+export type { OnboardingData, OnboardingResult, ApiResponse, FeedItem, FlagData };

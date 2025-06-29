@@ -4,12 +4,16 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { IssueMatcher } from './services/IssueMatcher.js';
-import { validateOnboardingData } from './middleware/validation.js';
+import { ContentService } from './services/ContentService.js';
+import { validateOnboardingData, validateFlagData } from './middleware/validation.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize services
+const contentService = new ContentService();
 
 // Security middleware
 app.use(helmet());
@@ -86,6 +90,68 @@ app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
   }
 });
 
+// Feed endpoint - GET /api/feed
+app.get('/api/feed', async (req, res) => {
+  try {
+    const userId = req.query.userId || 'anonymous';
+    
+    // Get user preferences (mock - would come from database)
+    const preferences = req.query.preferences ? JSON.parse(req.query.preferences) : {};
+    
+    // Generate personalized feed
+    const feedResult = await contentService.getFeed(userId, preferences);
+    
+    if (feedResult.success) {
+      res.json(feedResult);
+    } else {
+      res.status(500).json(feedResult);
+    }
+    
+  } catch (error) {
+    console.error('Feed generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate feed',
+      message: 'Please try again later'
+    });
+  }
+});
+
+// Flag submission endpoint - POST /api/flag
+app.post('/api/flag', validateFlagData, async (req, res) => {
+  try {
+    const flagResult = await contentService.submitFlag(req.body);
+    
+    if (flagResult.success) {
+      res.status(201).json(flagResult);
+    } else {
+      res.status(500).json(flagResult);
+    }
+    
+  } catch (error) {
+    console.error('Flag submission error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to submit flag',
+      message: 'Please try again later'
+    });
+  }
+});
+
+// Moderation queue endpoint (admin only)
+app.get('/api/moderation', (req, res) => {
+  try {
+    const queueResult = contentService.getModerationQueue();
+    res.json(queueResult);
+  } catch (error) {
+    console.error('Moderation queue error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve moderation queue'
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -109,4 +175,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Civvy API server running on port ${PORT}`);
   console.log(`📊 Rate limit: ${process.env.RATE_LIMIT_MAX || 60} requests/minute`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔍 FactHunter AI enabled for contradiction detection`);
 });

@@ -64,3 +64,52 @@ export const validateOnboardingData = (req, res, next) => {
   
   next();
 };
+
+export const validateFlagData = (req, res, next) => {
+  const { contentId, userId, reason, description } = req.body;
+  const validationErrors = [];
+  
+  // Required fields
+  if (!contentId || typeof contentId !== 'string') {
+    validationErrors.push('Content ID is required');
+  }
+  
+  if (!userId || typeof userId !== 'string') {
+    validationErrors.push('User ID is required');
+  }
+  
+  if (!reason || typeof reason !== 'string') {
+    validationErrors.push('Reason is required');
+  }
+  
+  // Valid reasons
+  const validReasons = [
+    'misinformation',
+    'bias',
+    'inaccuracy',
+    'hate-speech',
+    'harassment',
+    'spam',
+    'inappropriate',
+    'other'
+  ];
+  
+  if (reason && !validReasons.includes(reason)) {
+    validationErrors.push('Invalid flag reason');
+  }
+  
+  // Description length
+  if (description && description.length > 500) {
+    validationErrors.push('Description must be less than 500 characters');
+  }
+  
+  if (validationErrors.length > 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: validationErrors
+    });
+  }
+  
+  next();
+};
