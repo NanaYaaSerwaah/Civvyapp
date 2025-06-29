@@ -1,19 +1,18 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronRight, ChevronLeft } from 'lucide-react'
+import { ChevronRight, ChevronLeft, Loader2 } from 'lucide-react'
+import { apiService, type OnboardingData } from '../services/api'
 
-interface OnboardingData {
-  issues: string[]
-  format: string
-  reminders: boolean
-  cadence: string
-  zipCode: string
+interface OnboardingState extends OnboardingData {
+  // Additional UI state can be added here
 }
 
 const Onboarding: React.FC = () => {
   const navigate = useNavigate()
   const [currentStep, setCurrentStep] = useState(0)
-  const [data, setData] = useState<OnboardingData>({
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [data, setData] = useState<OnboardingState>({
     issues: [],
     format: '',
     reminders: false,
@@ -55,13 +54,34 @@ const Onboarding: React.FC = () => {
     }))
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1)
     } else {
-      // Complete onboarding
-      localStorage.setItem('civvy_onboarding', JSON.stringify(data))
-      navigate('/feed')
+      await handleComplete()
+    }
+  }
+
+  const handleComplete = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const response = await apiService.submitOnboarding(data)
+      
+      if (response.success && response.data) {
+        // Store onboarding result locally
+        localStorage.setItem('civvy_onboarding', JSON.stringify(response.data))
+        
+        // Navigate to feed
+        navigate('/feed')
+      } else {
+        setError(response.error || 'Failed to complete onboarding')
+      }
+    } catch (err) {
+      setError('Network error. Please check your connection and try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -69,6 +89,7 @@ const Onboarding: React.FC = () => {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
     }
+    setError(null) // Clear any errors when going back
   }
 
   const canProceed = () => {
@@ -85,14 +106,14 @@ const Onboarding: React.FC = () => {
   const steps = [
     {
       title: "What issues matter most to you?",
-      subtitle: "Select all that apply",
+      subtitle: "Select all that apply - we'll personalize your feed",
       content: (
         <div className="grid grid-cols-2 gap-3">
           {issues.map(issue => (
             <button
               key={issue}
               onClick={() => handleIssueToggle(issue)}
-              className={`p-4 rounded-lg border-2 text-left transition-all ${
+              className={`p-4 rounded-lg border-2 text-left transition-all hover:shadow-sm ${
                 data.issues.includes(issue)
                   ? 'border-primary-500 bg-primary-50 text-primary-700'
                   : 'border-secondary-200 hover:border-secondary-300'
@@ -106,14 +127,14 @@ const Onboarding: React.FC = () => {
     },
     {
       title: "How do you prefer to consume content?",
-      subtitle: "Choose your preferred format",
+      subtitle: "Choose your preferred format for maximum engagement",
       content: (
         <div className="space-y-3">
           {formats.map(format => (
             <button
               key={format.id}
               onClick={() => setData(prev => ({ ...prev, format: format.id }))}
-              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+              className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-sm ${
                 data.format === format.id
                   ? 'border-primary-500 bg-primary-50'
                   : 'border-secondary-200 hover:border-secondary-300'
@@ -133,7 +154,7 @@ const Onboarding: React.FC = () => {
         <div className="space-y-4">
           <button
             onClick={() => setData(prev => ({ ...prev, reminders: true }))}
-            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+            className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-sm ${
               data.reminders
                 ? 'border-primary-500 bg-primary-50'
                 : 'border-secondary-200 hover:border-secondary-300'
@@ -144,7 +165,7 @@ const Onboarding: React.FC = () => {
           </button>
           <button
             onClick={() => setData(prev => ({ ...prev, reminders: false }))}
-            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+            className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-sm ${
               !data.reminders
                 ? 'border-primary-500 bg-primary-50'
                 : 'border-secondary-200 hover:border-secondary-300'
@@ -158,14 +179,14 @@ const Onboarding: React.FC = () => {
     },
     {
       title: "How often would you like updates?",
-      subtitle: "Choose your preferred cadence",
+      subtitle: "Choose your preferred cadence for personalized content",
       content: (
         <div className="space-y-3">
           {cadences.map(cadence => (
             <button
               key={cadence.id}
               onClick={() => setData(prev => ({ ...prev, cadence: cadence.id }))}
-              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+              className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-sm ${
                 data.cadence === cadence.id
                   ? 'border-primary-500 bg-primary-50'
                   : 'border-secondary-200 hover:border-secondary-300'
@@ -180,7 +201,7 @@ const Onboarding: React.FC = () => {
     },
     {
       title: "What's your ZIP code?",
-      subtitle: "We'll personalize content for your local elections",
+      subtitle: "We'll personalize content for your local elections and issues",
       content: (
         <div className="max-w-xs mx-auto">
           <input
@@ -191,6 +212,9 @@ const Onboarding: React.FC = () => {
             className="input text-center text-lg"
             maxLength={5}
           />
+          <p className="text-xs text-secondary-500 mt-2 text-center">
+            Your ZIP code helps us show relevant local candidates and issues
+          </p>
         </div>
       )
     }
@@ -225,13 +249,20 @@ const Onboarding: React.FC = () => {
           </div>
           
           {steps[currentStep].content}
+          
+          {/* Error Display */}
+          {error && (
+            <div className="mt-6 p-4 bg-error-50 border border-error-200 rounded-lg">
+              <p className="text-error-700 text-sm">{error}</p>
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
         <div className="flex justify-between">
           <button
             onClick={handleBack}
-            disabled={currentStep === 0}
+            disabled={currentStep === 0 || loading}
             className="btn-outline px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft size={20} className="mr-2" />
@@ -240,11 +271,12 @@ const Onboarding: React.FC = () => {
           
           <button
             onClick={handleNext}
-            disabled={!canProceed()}
-            className="btn-primary px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!canProceed() || loading}
+            className="btn-primary px-6 py-3 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
           >
-            {currentStep === steps.length - 1 ? 'Complete' : 'Next'}
-            {currentStep < steps.length - 1 && <ChevronRight size={20} className="ml-2" />}
+            {loading && <Loader2 size={20} className="mr-2 animate-spin" />}
+            {currentStep === steps.length - 1 ? 'Complete Setup' : 'Next'}
+            {currentStep < steps.length - 1 && !loading && <ChevronRight size={20} className="ml-2" />}
           </button>
         </div>
       </div>
