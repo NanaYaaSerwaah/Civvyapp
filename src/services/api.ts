@@ -110,6 +110,13 @@ interface UserProfile {
   redemptions: any[];
   badges: string[];
   recentTransactions: any[];
+  trustMetrics?: {
+    reputation: number;
+    trustLevel: string;
+    flagWeight: number;
+    canModerate: boolean;
+    restrictions: string[];
+  };
 }
 
 interface VotePledge {
@@ -117,6 +124,42 @@ interface VotePledge {
   electionId: string;
   pledgeType: 'early-voting' | 'election-day' | 'absentee';
   scheduledDate?: string;
+}
+
+interface TransparencyReport {
+  timeframe: string;
+  generatedAt: string;
+  summary: {
+    totalEvents: number;
+    contentModerationActions: number;
+    userActions: number;
+    systemEvents: number;
+  };
+  moderation: {
+    flagsReceived: number;
+    flagsProcessed: number;
+    contentRemoved: number;
+    averageProcessingTime: number;
+  };
+  userEngagement: {
+    quizzesCompleted: number;
+    votePledges: number;
+    rewardsRedeemed: number;
+  };
+  systemHealth: {
+    uptime: string;
+    averageResponseTime: number;
+    errorRate: number;
+  };
+}
+
+interface AuditEvent {
+  id: string;
+  timestamp: string;
+  eventType: string;
+  category: string;
+  severity: string;
+  summary: string;
 }
 
 class ApiService {
@@ -212,6 +255,22 @@ class ApiService {
     return this.request<UserProfile>(`/api/user/${userId}/profile`);
   }
 
+  async getUserReputation(userId: string): Promise<ApiResponse<any>> {
+    return this.request<any>(`/api/user/${userId}/reputation`);
+  }
+
+  async getTransparencyReport(timeframe = '30d'): Promise<ApiResponse<TransparencyReport>> {
+    return this.request<TransparencyReport>(`/api/transparency/report?timeframe=${timeframe}`);
+  }
+
+  async getPublicAuditFeed(limit = 50, category?: string | null): Promise<ApiResponse<{ events: AuditEvent[] }>> {
+    const params = new URLSearchParams();
+    params.append('limit', limit.toString());
+    if (category) params.append('category', category);
+    
+    return this.request<{ events: AuditEvent[] }>(`/api/audit/public?${params.toString()}`);
+  }
+
   async getLeaderboard(): Promise<ApiResponse<any[]>> {
     return this.request<any[]>('/api/leaderboard');
   }
@@ -233,5 +292,7 @@ export type {
   QuizResult,
   Reward,
   UserProfile,
-  VotePledge
+  VotePledge,
+  TransparencyReport,
+  AuditEvent
 };

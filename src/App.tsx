@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding'
 import Feed from './pages/Feed'
 import Rewards from './pages/Rewards'
 import Profile from './pages/Profile'
+import Transparency from './pages/Transparency'
 import { AuthProvider } from './contexts/AuthContext'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
             <Route path="/feed" element={<Feed />} />
             <Route path="/rewards" element={<Rewards />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/transparency" element={<Transparency />} />
           </Routes>
         </Layout>
       </Router>

@@ -7,6 +7,8 @@ import { IssueMatcher } from './services/IssueMatcher.js';
 import { ContentService } from './services/ContentService.js';
 import { RewardMaster } from './services/RewardMaster.js';
 import { QuizService } from './services/QuizService.js';
+import { IntegrityGuardian } from './services/IntegrityGuardian.js';
+import { AuditService } from './services/AuditService.js';
 import { validateOnboardingData, validateFlagData, validateQuizData, validatePledgeData } from './middleware/validation.js';
 
 dotenv.config();
@@ -18,6 +20,8 @@ const PORT = process.env.PORT || 3001;
 const contentService = new ContentService();
 const rewardMaster = new RewardMaster();
 const quizService = new QuizService();
+const integrityGuardian = new IntegrityGuardian();
+const auditService = new AuditService();
 
 // Security middleware
 app.use(helmet());
@@ -77,6 +81,12 @@ app.post('/api/onboarding', validateOnboardingData, async (req, res) => {
       createdAt: new Date().toISOString(),
       status: 'completed'
     };
+
+    // Log audit event
+    await auditService.logEvent('user_onboarded', {
+      userId: onboardingResult.userId,
+      preferences: onboardingResult.preferences
+    });
     
     res.status(201).json({
       success: true,
@@ -124,19 +134,39 @@ app.get('/api/feed', async (req, res) => {
 // Flag submission endpoint - POST /api/flag
 app.post('/api/flag', validateFlagData, async (req, res) => {
   try {
-    const flagResult = await contentService.submitFlag(req.body);
+    // Process flag with reputation weighting
+    const weightedFlag = await integrityGuardian.processFlagWithReputation(req.body);
     
-    if (flagResult.success) {
-      // Award XP for flag submission
-      const userId = req.body.userId;
-      await rewardMaster.awardXP(userId, 'flag_submission', {
-        contentId: req.body.contentId,
-        reason: req.body.reason
+    if (weightedFlag.success) {
+      // Submit to content service
+      const flagResult = await contentService.submitFlag({
+        ...req.body,
+        weight: weightedFlag.data.weight,
+        priority: weightedFlag.data.priority
       });
-      
-      res.status(201).json(flagResult);
+
+      if (flagResult.success) {
+        // Award XP for flag submission
+        const userId = req.body.userId;
+        await rewardMaster.awardXP(userId, 'flag_submission', {
+          contentId: req.body.contentId,
+          reason: req.body.reason
+        });
+
+        // Log audit event
+        await auditService.logEvent('flag_submitted', {
+          flagId: weightedFlag.data.id,
+          contentId: req.body.contentId,
+          reason: req.body.reason,
+          weight: weightedFlag.data.weight
+        });
+        
+        res.status(201).json(flagResult);
+      } else {
+        res.status(500).json(flagResult);
+      }
     } else {
-      res.status(500).json(flagResult);
+      res.status(400).json(weightedFlag);
     }
     
   } catch (error) {
@@ -164,6 +194,13 @@ app.post('/api/quiz/generate', async (req, res) => {
     const quizResult = await quizService.generateQuiz(userId, preferences);
     
     if (quizResult.success) {
+      // Log audit event
+      await auditService.logEvent('quiz_generated', {
+        userId,
+        quizId: quizResult.data.quizId,
+        questionCount: quizResult.data.totalQuestions
+      });
+
       res.status(201).json(quizResult);
     } else {
       res.status(500).json(quizResult);
@@ -194,6 +231,15 @@ app.post('/api/quiz/submit', validateQuizData, async (req, res) => {
       };
       
       const rewardResult = await rewardMaster.processQuizCompletion(userId, quizData);
+
+      // Log audit event
+      await auditService.logEvent('quiz_completed', {
+        userId,
+        quizId,
+        score: submitResult.data.score,
+        isPerfectScore: submitResult.data.isPerfectScore,
+        xpEarned: rewardResult.data?.totalXPEarned || 0
+      });
       
       res.json({
         ...submitResult,
@@ -218,6 +264,14 @@ app.post('/api/vote-pledge', validatePledgeData, async (req, res) => {
     const pledgeResult = await rewardMaster.processVotePledge(req.body.userId, req.body);
     
     if (pledgeResult.success) {
+      // Log audit event
+      await auditService.logEvent('vote_pledge', {
+        userId: req.body.userId,
+        electionId: req.body.electionId,
+        pledgeType: req.body.pledgeType,
+        xpEarned: pledgeResult.data.reward?.xpEarned || 0
+      });
+
       res.status(201).json(pledgeResult);
     } else {
       res.status(400).json(pledgeResult);
@@ -263,6 +317,14 @@ app.post('/api/rewards/redeem', async (req, res) => {
     const redeemResult = await rewardMaster.redeemReward(userId, rewardId, quantity);
     
     if (redeemResult.success) {
+      // Log audit event
+      await auditService.logEvent('reward_redeemed', {
+        userId,
+        rewardId,
+        quantity,
+        cost: redeemResult.data.transaction.cost
+      });
+
       res.json(redeemResult);
     } else {
       res.status(400).json(redeemResult);
@@ -278,17 +340,19 @@ app.post('/api/rewards/redeem', async (req, res) => {
 });
 
 // User profile endpoint
-app.get('/api/user/:userId/profile', (req, res) => {
+app.get('/api/user/:userId/profile', async (req, res) => {
   try {
     const { userId } = req.params;
     const userProfile = rewardMaster.getUserProfile(userId);
     const transactions = rewardMaster.getUserTransactions(userId, 10);
+    const trustMetrics = integrityGuardian.getUserTrustMetrics(userId);
     
     res.json({
       success: true,
       data: {
         ...userProfile,
-        recentTransactions: transactions
+        recentTransactions: transactions,
+        trustMetrics: trustMetrics.success ? trustMetrics.data : null
       }
     });
   } catch (error) {
@@ -296,6 +360,56 @@ app.get('/api/user/:userId/profile', (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch user profile'
+    });
+  }
+});
+
+// Trust and audit endpoints
+app.get('/api/user/:userId/reputation', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const reputation = await integrityGuardian.calculateUserReputation(userId);
+    
+    if (reputation.success) {
+      res.json(reputation);
+    } else {
+      res.status(500).json(reputation);
+    }
+  } catch (error) {
+    console.error('Reputation calculation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to calculate reputation'
+    });
+  }
+});
+
+app.get('/api/audit/public', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    
+    const auditFeed = integrityGuardian.getPublicAuditFeed(limit, offset);
+    res.json(auditFeed);
+  } catch (error) {
+    console.error('Public audit feed error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve audit feed'
+    });
+  }
+});
+
+app.get('/api/transparency/report', (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || '30d';
+    const report = auditService.getTransparencyReport(timeframe);
+    res.json(report);
+  } catch (error) {
+    console.error('Transparency report error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate transparency report'
     });
   }
 });
@@ -318,7 +432,16 @@ app.get('/api/leaderboard', (req, res) => {
 app.get('/api/moderation', (req, res) => {
   try {
     const queueResult = contentService.getModerationQueue();
-    res.json(queueResult);
+    const integrityQueue = integrityGuardian.getModerationQueue();
+    
+    res.json({
+      success: true,
+      data: {
+        contentQueue: queueResult.data || [],
+        integrityQueue: integrityQueue.data?.queue || [],
+        totalPending: (queueResult.data?.length || 0) + (integrityQueue.data?.totalPending || 0)
+      }
+    });
   } catch (error) {
     console.error('Moderation queue error:', error);
     res.status(500).json({
@@ -354,4 +477,6 @@ app.listen(PORT, () => {
   console.log(`🔍 FactHunter AI enabled for contradiction detection`);
   console.log(`🎯 RewardMaster gamification engine active`);
   console.log(`🧠 QuizService civic knowledge system ready`);
+  console.log(`🛡️ IntegrityGuardian trust layer operational`);
+  console.log(`📋 AuditService transparency system active`);
 });
